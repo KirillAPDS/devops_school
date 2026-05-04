@@ -22,13 +22,15 @@ RUN apt update && \
 
 ENV JAVA_HOME /usr/lib/jvm/java-11-openjdk-amd64
 ENV PATH $PATH:$JAVA_HOME/bin
+ENV CATALINA_HOME /usr/share/tomcat9
+ENV CATALINA_BASE /var/lib/tomcat9
 
 WORKDIR /app
 
 RUN git clone https://github.com/boxfuse/boxfuse-sample-java-war-hello.git && \
     cd boxfuse-sample-java-war-hello && \
     mvn package && \
-    cp target/hello-1.0.war /var/lib/tomcat9/webapps/ROOT.war
+    cp target/hello-1.0.war /var/lib/tomcat9/webapps/
 
 EXPOSE 8080
 
