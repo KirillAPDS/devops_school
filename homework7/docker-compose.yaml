@@ -1,0 +1,22 @@
+---
+services:
+  builder:
+    build: ./builder
+    volumes:
+      - war_output:/output   # ту т будет WAR-ник
+    command: sh -c "mvn package && cp target/hello-1.0.war /output/ROOT.war"
+    # Сервис завершится после сборки, но volume останется
+
+  app:
+    build: ./app
+    ports:
+      - "8080:8080"
+    volumes:
+      - war_output:/tmp/build   # монтируем ту же volume, откуда app возьмёт WAR
+    depends_on:
+      - builder
+
+volumes:
+  war_output:
+...
+
