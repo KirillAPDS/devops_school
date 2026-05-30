@@ -1,0 +1,175 @@
+---
+- name: Prepare build node
+  hosts: db
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    builder_path: /opt/builder
+    output_path: /tmp/war_output
+  tasks:
+    - name: Install Docker dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+        state: present
+
+    - name: Install Docker CE
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install python3 and Docker SDK for Ansible
+      apt:
+        name:
+          - python3
+          - python3-docker
+          - python3-requests
+        state: present
+
+    - name: Create builder directory
+      file:
+        path: "{{ builder_path }}"
+        state: directory
+
+    - name: Copy builder Dockerfile
+      copy:
+        src: builder/Dockerfile
+        dest: "{{ builder_path }}/Dockerfile"
+
+    - name: Build builder image
+      docker_image:
+        name: builder
+        path: "{{ builder_path }}"
+        state: present
+
+    - name: Create output directory for WAR
+      file:
+        path: "{{ output_path }}"
+        state: directory
+
+    - name: Run build container and wait for completion
+      command: >
+        docker run --rm
+        -v {{ output_path }}:/output
+        builder
+        sh -c "mvn package && cp target/hello-1.0.war /output/ROOT.war"
+      register: build_result
+      changed_when: true
+
+    - name: Fetch WAR from build node
+      fetch:
+        src: "{{ output_path }}/ROOT.war"
+        dest: /tmp/fetched_war/
+        flat: yes
+
+- name: Prepare production node
+  hosts: web
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    app_path: /opt/app
+    deploy_war_path: /tmp/war_deploy
+  tasks:
+    - name: Install Docker dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+        state: present
+
+    - name: Install Docker CE
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install python3 and Docker SDK for Ansible
+      apt:
+        name:
+          - python3
+          - python3-docker
+          - python3-requests
+        state: present
+
+    - name: Create application directory
+      file:
+        path: "{{ app_path }}"
+        state: directory
+
+    - name: Copy app Dockerfile
+      copy:
+        src: app/Dockerfile
+        dest: "{{ app_path }}/Dockerfile"
+
+    - name: Copy entrypoint.sh
+      copy:
+        src: app/entrypoint.sh
+        dest: "{{ app_path }}/entrypoint.sh"
+        mode: '0755'
+
+    - name: Build app image
+      docker_image:
+        name: app
+        path: "{{ app_path }}"
+        state: present
+
+    - name: Create deployment directory for WAR
+      file:
+        path: "{{ deploy_war_path }}"
+        state: directory
+
+    - name: Copy WAR to production node
+      copy:
+        src: /tmp/fetched_war/ROOT.war
+        dest: "{{ deploy_war_path }}/ROOT.war"
+
+    - name: Start Tomcat container with application
+      docker_container:
+        name: app_container
+        image: app
+        ports:
+          - "8080:8080"
+        volumes:
+          - "{{ deploy_war_path }}:/tmp/build"
+        state: started
+        restart_policy: unless-stopped
